@@ -48,6 +48,9 @@ python3 benchmark.py
 ### option 2
 #### use a prebuilt image
 
+- mkdir reports
+- mkdir benchmarks
+
 ```bash 
 docker run -d \
   -p 8027:8027 \
