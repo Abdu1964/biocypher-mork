@@ -1,0 +1,195 @@
+
+    ; Sample MeTTa data file
+    ; This file contains sample data for testing
+    
+    ; Node definitions
+    (: Person)
+    (: Animal)
+    (: Organization)
+    
+    ; Relationship types
+    (: friendOf)
+    (: worksAt)
+    (: owns)
+    (: knows)
+    
+        (Person_79)
+        (Organization_28)
+        (worksAt Person_79 Organization_28)
+        (hasSalary Person_79 51830)
+        (hasAge Person_79 58)
+        
+        (Person_62)
+        (Organization_36)
+        (worksAt Person_62 Organization_36)
+        (hasSalary Person_62 146102)
+        (hasAge Person_62 54)
+        
+        (Person_71)
+        (Organization_34)
+        (worksAt Person_71 Organization_34)
+        (hasSalary Person_71 47550)
+        (hasAge Person_71 34)
+        
+        (Person_52)
+        (Organization_9)
+        (worksAt Person_52 Organization_9)
+        (hasSalary Person_52 107618)
+        (hasAge Person_52 47)
+        
+        (Person_40)
+        (Organization_44)
+        (worksAt Person_40 Organization_44)
+        (hasSalary Person_40 39410)
+        (hasAge Person_40 37)
+        
+        (Person_14)
+        (Organization_22)
+        (worksAt Person_14 Organization_22)
+        (hasSalary Person_14 78988)
+        (hasAge Person_14 38)
+        
+        (Person_48)
+        (Organization_40)
+        (worksAt Person_48 Organization_40)
+        (hasSalary Person_48 71657)
+        (hasAge Person_48 33)
+        
+        (Person_92)
+        (Organization_2)
+        (worksAt Person_92 Organization_2)
+        (hasSalary Person_92 99562)
+        (hasAge Person_92 31)
+        
+        (Person_3)
+        (Organization_25)
+        (worksAt Person_3 Organization_25)
+        (hasSalary Person_3 99370)
+        (hasAge Person_3 41)
+        
+        (Person_42)
+        (Organization_24)
+        (worksAt Person_42 Organization_24)
+        (hasSalary Person_42 145646)
+        (hasAge Person_42 24)
+        
+        (Person_47)
+        (Organization_5)
+        (worksAt Person_47 Organization_5)
+        (hasSalary Person_47 133424)
+        (hasAge Person_47 47)
+        
+        (Person_46)
+        (Organization_21)
+        (worksAt Person_46 Organization_21)
+        (hasSalary Person_46 111000)
+        (hasAge Person_46 51)
+        
+        (Person_55)
+        (Organization_47)
+        (worksAt Person_55 Organization_47)
+        (hasSalary Person_55 84776)
+        (hasAge Person_55 34)
+        
+        (Person_11)
+        (Organization_23)
+        (worksAt Person_11 Organization_23)
+        (hasSalary Person_11 139299)
+        (hasAge Person_11 46)
+        
+        (Person_94)
+        (Organization_44)
+        (worksAt Person_94 Organization_44)
+        (hasSalary Person_94 147908)
+        (hasAge Person_94 28)
+        
+        (Person_93)
+        (Organization_43)
+        (worksAt Person_93 Organization_43)
+        (hasSalary Person_93 77871)
+        (hasAge Person_93 27)
+        
+        (Person_84)
+        (Organization_13)
+        (worksAt Person_84 Organization_13)
+        (hasSalary Person_84 78641)
+        (hasAge Person_84 38)
+        
+        (Person_32)
+        (Organization_40)
+        (worksAt Person_32 Organization_40)
+        (hasSalary Person_32 105409)
+        (hasAge Person_32 26)
+        
+        (Person_98)
+        (Organization_35)
+        (worksAt Person_98 Organization_35)
+        (hasSalary Person_98 124660)
+        (hasAge Person_98 36)
+        
+        (Person_98)
+        (Organization_15)
+        (worksAt Person_98 Organization_15)
+        (hasSalary Person_98 71737)
+        (hasAge Person_98 61)
+        
+        (Person_94)
+        (Organization_14)
+        (worksAt Person_94 Organization_14)
+        (hasSalary Person_94 120095)
+        (hasAge Person_94 35)
+        
+        (Person_27)
+        (Organization_47)
+        (worksAt Person_27 Organization_47)
+        (hasSalary Person_27 57306)
+        (hasAge Person_27 44)
+        
+        (Person_62)
+        (Organization_16)
+        (worksAt Person_62 Organization_16)
+        (hasSalary Person_62 41980)
+        (hasAge Person_62 40)
+        
+        (Person_97)
+        (Organization_44)
+        (worksAt Person_97 Organization_44)
+        (hasSalary Person_97 88838)
+        (hasAge Person_97 35)
+        
+        (Person_53)
+        (Organization_44)
+        (worksAt Person_53 Organization_44)
+        (hasSalary Person_53 125675)
+        (hasAge Person_53 31)
+        
+        (Person_87)
+        (Organization_48)
+        (worksAt Person_87 Organization_48)
+        (hasSalary Person_87 149957)
+        (hasAge Person_87 30)
+        
+        (Person_23)
+        (Organization_10)
+        (worksAt Person_23 Organization_10)
+        (hasSalary Person_23 48071)
+        (hasAge Person_23 60)
+        
+        (Person_20)
+        (Organization_37)
+        (worksAt Person_20 Organization_37)
+        (hasSalary Person_20 103341)
+        (hasAge Person_20 30)
+        
+        (Person_59)
+        (Organization_36)
+        (worksAt Person_59 Organization_36)
+        (hasSalary Person_59 39729)
+        (hasAge Person_59 23)
+        
+        (Person_50)
+        (Organization_4)
+        (worksAt Person_50 Organization_4)
+        (hasSalary Person_50 86243)
+        (hasAge Person_50 50)
+        
