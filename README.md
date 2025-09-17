@@ -2,22 +2,22 @@
 
 ### This project uses MORK to load BioAtomSpace data into a MORK database, store it efficiently, and perform benchmarks to evaluate performance. It also enables using BioAtomSpace as a graph database.
 
-##### Features
+#### Features
 
-##### Load BioAtomSpace data into MORK.
+ - Load BioAtomSpace data into MORK.
 
-##### Store and manage data efficiently.
+ - Store and manage data efficiently.
 
-##### Benchmark MORK performance with BioAtomSpace datasets.
+ - Benchmark MORK performance with BioAtomSpace datasets.
 
-##### Use BioAtomSpace as a graph database.
+ - Use BioAtomSpace as a graph database.
 
 ### Getting Started
 #### Prerequisites
 
-##### Docker & Docker Compose installed
+ - Docker & Docker Compose installed
 
-##### Python 3
+ - Python 3
 
 ### how to run
 
@@ -37,8 +37,8 @@ docker compose build
 docker compose up -d
 
 # Fix permissions for the reports and data folders
-sudo chown -R $USER:$USER reports data
-sudo chmod -R u+rw reports data
+sudo chown -R $USER:$USER reports data benchmarks
+sudo chmod -R u+rw reports data benchmarks
 
 #load data to mork
 python3 load_metta_data.py
@@ -49,7 +49,14 @@ python3 benchmark.py
 #### use a prebuilt image
 
 ```bash 
-docker run -d -p 8027:8027 --name mork-biocypher abdum1964/mork-biocypher:latest
+docker run -d \
+  -p 8027:8027 \
+  --name mork-biocypher \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/reports:/app/reports \
+  -v $(pwd)/benchmarks:/app/benchmarks \
+  abdum1964/mork-biocypher:latest
+
 
 # Fix permissions for the reports and data folders
 sudo chown -R $USER:$USER reports data
