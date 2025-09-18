@@ -2,9 +2,8 @@
 """
 Comprehensive MORK benchmark + storage analysis.
 
-- Reconstructs namespaces from local `data/*.metta` files (same sanitization as loader)
-- Benchmarks query performance per-namespace
-- Analyzes storage: local .metta sizes & estimated facts vs MORK stored bytes & facts
+- Benchmarks query performance on the single namespace
+- Analyzes storage: local .metta sizes vs MORK stored bytes & facts
 - Produces JSON and CSV reports under `benchmarks/`
 """
 
@@ -21,24 +20,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def sanitize_part(part: str) -> str:
-    p = re.sub(r'\.metta$', '', part, flags=re.IGNORECASE)
-    sanitized = re.sub(r'[^a-zA-Z0-9]', '_', p)
-    sanitized = re.sub(r'_+', '_', sanitized).strip('_')
-    return sanitized.lower() if sanitized else ''
-
-
-def create_namespace_from_path(file_path: Path, base_data_dir: Path) -> str:
-    """Build namespace from a file path using the same rules as loader."""
-    rel = file_path.relative_to(base_data_dir)
-    parts = []
-    for part in rel.parts:
-        s = sanitize_part(part)
-        if s:
-            parts.append(s)
-    return "_".join(parts) if parts else "data"
-
-
 def estimate_facts_in_file(file_path: Path) -> int:
     """Estimate number of facts in a .metta file (non-empty, non-comment lines)."""
     try:
@@ -50,26 +31,22 @@ def estimate_facts_in_file(file_path: Path) -> int:
         return 0
 
 
-def discover_local_namespace_file_map(base_data_dir: str = "data"):
+def discover_local_files(base_data_dir: str = "data"):
     """
     Returns:
       all_files: list[Path] of .metta files found
-      namespace_map: dict[str, list[Path]] mapping namespace -> list of file Paths
     """
     base = Path(base_data_dir)
     all_files = []
-    ns_map = {}
     if not base.exists():
         logger.info(f"Local data directory {base} does not exist.")
-        return all_files, ns_map
+        return all_files
 
     for f in base.rglob("*.metta"):
         if f.is_file():
             all_files.append(f)
-            ns = create_namespace_from_path(f, base)
-            ns_map.setdefault(ns, []).append(f)
 
-    return all_files, ns_map
+    return all_files
 
 
 class MORKBenchmark:
@@ -80,6 +57,7 @@ class MORKBenchmark:
         self.base_data_dir = Path(base_data_dir)
         self.benchmark_dir = Path("benchmarks")
         self.benchmark_dir.mkdir(exist_ok=True)
+        self.target_namespace = "bioatomspace"  
         self.connect_server()
 
     def connect_server(self) -> bool:
@@ -95,51 +73,41 @@ class MORKBenchmark:
             self.server = None
             return False
 
-    def get_all_namespaces_from_local(self):
-        _, ns_map = discover_local_namespace_file_map(str(self.base_data_dir))
-        namespaces = list(ns_map.keys())
-        logger.info(f"Discovered {len(namespaces)} namespaces from local data folder")
-        return namespaces, ns_map
-
-    def get_loaded_namespaces(self):
-        """Return list of tuples (namespace, fact_count) for namespaces that have data in MORK."""
-        namespaces, ns_map = self.get_all_namespaces_from_local()
-        active = []
+    def get_loaded_data_stats(self):
+        """Return fact count for the bioatomspace namespace."""
         if not self.server:
-            logger.warning("Server not connected — skipping MORK namespace checks")
-            return active
+            logger.warning("Server not connected — skipping MORK data check")
+            return 0
 
-        for ns in namespaces:
-            try:
-                with self.server.work_at(ns) as scope:
-                    # quick check
-                    check = scope.download_(max_results=1)
-                    check.block()
-                    if check.data and check.data.strip():
-                        # fetch full (careful: could be large)
-                        full = scope.download_()
-                        full.block()
-                        data_text = full.data or ""
-                        fact_count = data_text.count('\n') if data_text else 0
-                        active.append((ns, fact_count))
-                        logger.debug(f"Namespace {ns}: {fact_count} facts")
-                    else:
-                        logger.debug(f"Namespace {ns} appears empty in MORK")
-            except Exception as e:
-                logger.debug(f"Error accessing namespace {ns}: {e}")
+        try:
+            with self.server.work_at(self.target_namespace) as scope:
+                # quick check
+                check = scope.download_(max_results=1)
+                check.block()
+                if check.data and check.data.strip():
+                    # fetch full
+                    full = scope.download_()
+                    full.block()
+                    data_text = full.data or ""
+                    fact_count = data_text.count('\n') if data_text else 0
+                    logger.debug(f"Namespace {self.target_namespace}: {fact_count} facts")
+                    return fact_count
+                else:
+                    logger.debug(f"Namespace {self.target_namespace} appears empty in MORK")
+                    return 0
+        except Exception as e:
+            logger.debug(f"Error accessing namespace {self.target_namespace}: {e}")
+            return 0
 
-        logger.info(f"Found {len(active)} namespaces with data in MORK")
-        return active
-
-    def measure_query_performance(self, namespace: str, fact_count: int, iterations: int = 5):
-        """Run several queries against a namespace and return timings/results."""
+    def measure_query_performance(self, fact_count: int, iterations: int = 5):
+        """Run several queries against the bioatomspace namespace and return timings/results."""
         results = {}
         # Download all
         dl_results = []
         for _ in range(iterations):
             start = time.time()
             try:
-                with self.server.work_at(namespace) as scope:
+                with self.server.work_at(self.target_namespace) as scope:
                     r = scope.download_()
                     r.block()
                     duration_ms = (time.time() - start) * 1000
@@ -149,7 +117,7 @@ class MORKBenchmark:
                 dl_results.append({"duration_ms": (time.time() - start) * 1000, "facts_returned": 0, "success": False, "error": str(e)})
         results["download_all"] = dl_results
 
-        # Pattern queries (lightweight)
+        # Pattern queries 
         patterns = [
             ("(Person_$x)", "$x", "person_pattern"),
             ("($type $x)", "$type", "generic_pattern"),
@@ -161,7 +129,7 @@ class MORKBenchmark:
             for _ in range(iterations):
                 start = time.time()
                 try:
-                    with self.server.work_at(namespace) as scope:
+                    with self.server.work_at(self.target_namespace) as scope:
                         r = scope.download(pat, outv)
                         r.block()
                         duration_ms = (time.time() - start) * 1000
@@ -174,43 +142,42 @@ class MORKBenchmark:
         return results
 
     def run_comprehensive_benchmark(self):
-        """Run benchmark on all loaded namespaces and save a JSON report."""
+        """Run benchmark on the bioatomspace namespace and save a JSON report."""
         perf_report = {
             "timestamp": datetime.now().isoformat(),
-            "total_namespaces": 0,
+            "namespace": self.target_namespace,
             "total_facts": 0,
-            "namespace_results": {},
+            "performance": {},
             "summary": {}
         }
 
-        loaded = self.get_loaded_namespaces()
-        if not loaded:
-            logger.warning("No namespaces with data found — performance report will be empty")
+        fact_count = self.get_loaded_data_stats()
+        if fact_count == 0:
+            logger.warning("No data found in bioatomspace namespace — performance report will be empty")
             return perf_report
 
-        perf_report["total_namespaces"] = len(loaded)
-        perf_report["total_facts"] = sum(cnt for _, cnt in loaded)
+        perf_report["total_facts"] = fact_count
 
-        for ns_name, fact_count in loaded:
-            logger.info(f"Benchmarking {ns_name} ({fact_count} facts)")
-            perf = self.measure_query_performance(ns_name, fact_count)
-            perf_report["namespace_results"][ns_name] = {"fact_count": fact_count, "performance": perf}
+        logger.info(f"Benchmarking {self.target_namespace} ({fact_count} facts)")
+        perf = self.measure_query_performance(fact_count)
+        perf_report["performance"] = perf
 
         # Summary statistics
         all_downloads = []
         all_pattern_times = []
         total_processed = 0
-        for ns_val in perf_report["namespace_results"].values():
-            for r in ns_val["performance"]["download_all"]:
-                if r.get("success"):
-                    all_downloads.append(r["duration_ms"])
-                    total_processed += r["facts_returned"]
-            # pick pattern times (aggregate all patterns)
-            for k, v in ns_val["performance"].items():
-                if k != "download_all":
-                    for r in v:
-                        if r.get("success"):
-                            all_pattern_times.append(r["duration_ms"])
+        
+        for r in perf["download_all"]:
+            if r.get("success"):
+                all_downloads.append(r["duration_ms"])
+                total_processed += r["facts_returned"]
+        
+        # pick pattern times (aggregate all patterns)
+        for k, v in perf.items():
+            if k != "download_all":
+                for r in v:
+                    if r.get("success"):
+                        all_pattern_times.append(r["duration_ms"])
 
         if all_downloads:
             perf_report["summary"] = {
@@ -220,7 +187,6 @@ class MORKBenchmark:
                 "avg_pattern_time_ms": (sum(all_pattern_times) / len(all_pattern_times)) if all_pattern_times else 0,
                 "total_facts_processed": total_processed,
                 "throughput_facts_per_second": (total_processed / (sum(all_downloads) / 1000)) if sum(all_downloads) > 0 else 0,
-                "namespaces_benchmarked": len(loaded)
             }
 
         # Save performance report
@@ -235,18 +201,17 @@ class MORKBenchmark:
     def analyze_storage_efficiency(self):
         """
         Build:
-         - original file stats (total files, size, per-namespace breakdown)
-         - mork storage stats (per-namespace facts, bytes as returned)
+         - original file stats (total files, size)
+         - mork storage stats (facts, bytes as returned)
          - compression analysis + efficiency metrics
         """
-        all_files, ns_map = discover_local_namespace_file_map(str(self.base_data_dir))
+        all_files = discover_local_files(str(self.base_data_dir))
 
         original_stats = {
             "total_files": 0,
             "total_size_bytes": 0,
-            "file_breakdown": {}  # file -> {size_bytes, estimated_facts, namespace}
+            "file_breakdown": {}  # file -> {size_bytes, estimated_facts}
         }
-        ns_orig_breakdown = {}
 
         # analyze local files
         for f in all_files:
@@ -255,57 +220,43 @@ class MORKBenchmark:
             except Exception:
                 size = 0
             est_f = estimate_facts_in_file(f)
-            ns = create_namespace_from_path(f, self.base_data_dir)
-            original_stats["file_breakdown"][str(f)] = {"size_bytes": size, "estimated_facts": est_f, "namespace": ns}
+            original_stats["file_breakdown"][str(f)] = {"size_bytes": size, "estimated_facts": est_f}
             original_stats["total_files"] += 1
             original_stats["total_size_bytes"] += size
-            ns_orig_breakdown.setdefault(ns, {"size_bytes": 0, "estimated_facts": 0, "files": []})
-            ns_orig_breakdown[ns]["size_bytes"] += size
-            ns_orig_breakdown[ns]["estimated_facts"] += est_f
-            ns_orig_breakdown[ns]["files"].append(str(f))
 
         # analyze MORK storage
         mork_stats = {
-            "total_namespaces": 0,
-            "total_facts": 0,
-            "total_mork_bytes": 0,
-            "namespace_breakdown": {}  # ns -> {facts, size_bytes, bytes_per_fact}
+            "namespace": self.target_namespace,
+            "facts": 0,
+            "size_bytes": 0,
+            "bytes_per_fact": 0
         }
 
         if not self.server:
             logger.warning("Server not connected — MORK stats will be empty")
         else:
-            namespaces = list(ns_map.keys())
-            for ns in namespaces:
-                try:
-                    with self.server.work_at(ns) as scope:
-                        r = scope.download_()
-                        r.block()
-                        data_text = r.data or ""
-                        facts = data_text.count('\n') if data_text else 0
-                        bytes_len = len(data_text.encode('utf-8')) if data_text else 0
-                        if facts > 0 or bytes_len > 0:
-                            mork_stats["namespace_breakdown"][ns] = {
-                                "facts": facts,
-                                "size_bytes": bytes_len,
-                                "bytes_per_fact": (bytes_len / facts) if facts > 0 else 0
-                            }
-                            mork_stats["total_facts"] += facts
-                            mork_stats["total_mork_bytes"] += bytes_len
-                except Exception as e:
-                    logger.debug(f"Error fetching data for namespace {ns}: {e}")
-
-        mork_stats["total_namespaces"] = len(mork_stats["namespace_breakdown"])
+            try:
+                with self.server.work_at(self.target_namespace) as scope:
+                    r = scope.download_()
+                    r.block()
+                    data_text = r.data or ""
+                    facts = data_text.count('\n') if data_text else 0
+                    bytes_len = len(data_text.encode('utf-8')) if data_text else 0
+                    mork_stats["facts"] = facts
+                    mork_stats["size_bytes"] = bytes_len
+                    mork_stats["bytes_per_fact"] = (bytes_len / facts) if facts > 0 else 0
+            except Exception as e:
+                logger.debug(f"Error fetching data for namespace {self.target_namespace}: {e}")
 
         # Compression analysis
         comp = {}
-        if original_stats["total_size_bytes"] > 0 and mork_stats["total_mork_bytes"] > 0:
-            compression_ratio = mork_stats["total_mork_bytes"] / original_stats["total_size_bytes"]
-            space_saved = original_stats["total_size_bytes"] - mork_stats["total_mork_bytes"]
+        if original_stats["total_size_bytes"] > 0 and mork_stats["size_bytes"] > 0:
+            compression_ratio = mork_stats["size_bytes"] / original_stats["total_size_bytes"]
+            space_saved = original_stats["total_size_bytes"] - mork_stats["size_bytes"]
             space_saved_percent = (space_saved / original_stats["total_size_bytes"]) * 100
             comp = {
                 "original_size_mb": original_stats["total_size_bytes"] / 1024 / 1024,
-                "mork_size_mb": mork_stats["total_mork_bytes"] / 1024 / 1024,
+                "mork_size_mb": mork_stats["size_bytes"] / 1024 / 1024,
                 "compression_ratio": compression_ratio,
                 "space_saved_bytes": space_saved,
                 "space_saved_mb": space_saved / 1024 / 1024,
@@ -315,20 +266,19 @@ class MORKBenchmark:
         else:
             comp = {"note": "Compression analysis skipped - no original files found or empty data"}
 
-        avg_bytes_per_fact = (mork_stats["total_mork_bytes"] / mork_stats["total_facts"]) if mork_stats["total_facts"] > 0 else 0
-        facts_per_mb = (mork_stats["total_facts"] / (mork_stats["total_mork_bytes"] / 1024 / 1024)) if mork_stats["total_mork_bytes"] > 0 else 0
+        avg_bytes_per_fact = mork_stats["bytes_per_fact"]
+        facts_per_mb = (mork_stats["facts"] / (mork_stats["size_bytes"] / 1024 / 1024)) if mork_stats["size_bytes"] > 0 else 0
         density = "high" if facts_per_mb > 10000 else "medium" if facts_per_mb > 1000 else "low"
 
         efficiency = {
             "avg_bytes_per_fact": avg_bytes_per_fact,
             "facts_per_mb": facts_per_mb,
             "storage_density": density,
-            "total_facts_stored": mork_stats["total_facts"]
+            "total_facts_stored": mork_stats["facts"]
         }
 
         storage_analysis = {
             "original_file_stats": original_stats,
-            "original_namespace_breakdown": ns_orig_breakdown,
             "mork_storage_stats": mork_stats,
             "compression_analysis": comp,
             "efficiency_metrics": efficiency,
@@ -351,9 +301,9 @@ class MORKBenchmark:
 
         mork = storage_data["mork_storage_stats"]
         print(f"\nMORK storage:")
-        print(f"  Namespaces: {mork['total_namespaces']}")
-        print(f"  Facts: {mork['total_facts']:,}")
-        print(f"  Storage size: {mork['total_mork_bytes'] / 1024 / 1024:.2f} MB")
+        print(f"  Namespace: {mork['namespace']}")
+        print(f"  Facts: {mork['facts']:,}")
+        print(f"  Storage size: {mork['size_bytes'] / 1024 / 1024:.2f} MB")
 
         comp = storage_data["compression_analysis"]
         if "note" in comp:
@@ -373,15 +323,6 @@ class MORKBenchmark:
         print(f"  Facts per MB: {eff['facts_per_mb']:.0f}")
         print(f"  Storage density: {eff['storage_density']}")
 
-        # Top namespaces by MORK storage size
-        ns_break = mork.get("namespace_breakdown", {})
-        if ns_break:
-            print(f"\nLargest namespaces by storage (top 5):")
-            ns_by_storage = sorted(ns_break.items(), key=lambda x: x[1]["size_bytes"], reverse=True)
-            for ns_name, ns_data in ns_by_storage[:5]:
-                size_kb = ns_data["size_bytes"] / 1024
-                print(f"  {ns_name}: {size_kb:.1f} KB ({ns_data['facts']} facts)")
-
     def save_combined_reports(self, perf, storage):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         combined = {"performance": perf, "storage": storage, "analysis_timestamp": datetime.now().isoformat()}
@@ -396,15 +337,15 @@ class MORKBenchmark:
             writer = csv.writer(fh)
             writer.writerow(["Metric", "Value"])
             writer.writerow(["Timestamp", combined["analysis_timestamp"]])
+            writer.writerow(["Namespace", "bioatomspace"])
             # original summary
             o = storage["original_file_stats"]
             writer.writerow(["Total .metta files", o["total_files"]])
             writer.writerow(["Total local size (MB)", f"{o['total_size_bytes'] / 1024 / 1024:.2f}"])
             # mork summary
             m = storage["mork_storage_stats"]
-            writer.writerow(["Total MORK namespaces", m["total_namespaces"]])
-            writer.writerow(["Total facts in MORK", m["total_facts"]])
-            writer.writerow(["Total MORK size (MB)", f"{m['total_mork_bytes'] / 1024 / 1024:.2f}"])
+            writer.writerow(["Total facts in MORK", m["facts"]])
+            writer.writerow(["Total MORK size (MB)", f"{m['size_bytes'] / 1024 / 1024:.2f}"])
             # compression
             c = storage["compression_analysis"]
             if "note" in c:
@@ -448,13 +389,12 @@ class MORKBenchmark:
 
         return {"performance": perf, "storage": storage}
 
-
     def print_results(self, results):
         print("\n" + "=" * 60)
         print("MORK PERFORMANCE BENCHMARK RESULTS")
         print("=" * 60)
         print(f"Timestamp: {results.get('timestamp')}")
-        print(f"Total Namespaces: {results.get('total_namespaces')}")
+        print(f"Namespace: {results.get('namespace')}")
         print(f"Total Facts: {results.get('total_facts', 0):,}")
 
         if "summary" in results and results["summary"]:
@@ -468,15 +408,6 @@ class MORKBenchmark:
                 print(f"  Average pattern query time: {s['avg_pattern_time_ms']:.2f} ms")
             if s.get("throughput_facts_per_second") is not None:
                 print(f"  Throughput: {s['throughput_facts_per_second']:.0f} facts/second")
-
-        if results.get("namespace_results"):
-            print("\nTop 5 Largest Namespaces:")
-            ns_by_size = sorted(results["namespace_results"].items(), key=lambda x: x[1]["fact_count"], reverse=True)
-            for ns_name, ns_data in ns_by_size[:5]:
-                fact_count = ns_data["fact_count"]
-                dl_times = [r["duration_ms"] for r in ns_data["performance"]["download_all"] if r.get("success")]
-                avg_time = (sum(dl_times) / len(dl_times)) if dl_times else 0
-                print(f"  {ns_name}: {fact_count:,} facts, {avg_time:.2f}ms avg")
 
 
 def main():
