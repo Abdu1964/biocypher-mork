@@ -80,32 +80,6 @@ class MeTTaDataLoader:
         logger.info(f"Found {len(metta_files)} MeTTa files")
         return metta_files
     
-    def create_mork_namespace(self, file_path: Path) -> str:
-        """
-        Create MORK namespace using underscore separators instead of slashes
-        to avoid URL encoding issues with MORK import
-        """
-        relative_path = file_path.relative_to(self.base_data_dir)
-        
-        # Remove .metta extension and convert path to underscore-separated string
-        namespace_parts = []
-        for part in relative_path.parts:
-            if part.endswith('.metta'):
-                part = part[:-6]  # Remove .metta extension
-            
-            # Sanitize each part
-            sanitized = re.sub(r'[^a-zA-Z0-9]', '_', part)
-            sanitized = re.sub(r'_+', '_', sanitized).strip('_')
-            
-            if sanitized:  # Only add non-empty parts
-                namespace_parts.append(sanitized.lower())
-        
-        # If namespace would be empty, use a default
-        if not namespace_parts:
-            return "data"
-        
-        return "_".join(namespace_parts)
-    
     def validate_metta_file(self, file_path: Path) -> Tuple[bool, str]:
         """Validate MeTTa file content before loading"""
         try:
@@ -143,10 +117,9 @@ class MeTTaDataLoader:
     
     def load_single_file(self, file_path: Path) -> Tuple[bool, int, int, str]:
         """Load a single MeTTa file into MORK"""
-        namespace = self.create_mork_namespace(file_path)
+        namespace = "bioatomspace"  # Single namespace for all files
         
         # Convert host path to container path
-        
         # docker-compose mounts ./data to /app/data
         relative_path = file_path.relative_to(self.base_data_dir)
         container_file_path = Path("/app/data") / relative_path
@@ -210,7 +183,7 @@ class MeTTaDataLoader:
                 self.stats.failed_files_list.append({
                     "file": str(file_path),
                     "error": error_msg,
-                    "namespace": self.create_mork_namespace(file_path)
+                    "namespace": "bioatomspace"
                 })
                 logger.error(f"   ... Failed: {error_msg}")
         
@@ -221,53 +194,24 @@ class MeTTaDataLoader:
         logger.info("... Organizing data with transformations...")
         
         try:
-            # try to access data  from root namespace
-            with self.server.work_at("") as root:
-                # Try to list available namespaces first
-                try:
-                    list_cmd = root.list_namespaces_()
-                    list_cmd.block()
-                    if list_cmd.data:
-                        logger.info(f"Available namespaces: {list_cmd.data}")
-                except:
-                    logger.warning("Could not list namespaces")
-                
-                # Count 
-                count_cmd = root.download_(max_results=100)  # Limit to avoid huge responses
+            # Access data from the bioatomspace namespace
+            with self.server.work_at("bioatomspace") as scope:
+                # Count facts in the namespace
+                count_cmd = scope.download_(max_results=100)  # Limit to avoid huge responses
                 count_cmd.block()
                 if count_cmd.data:
                     total_facts = count_cmd.data.count('\n')
-                    logger.info(f"Total facts in root namespace: {total_facts}")
+                    logger.info(f"Total facts in bioatomspace namespace: {total_facts}")
                     if total_facts > 0:
                         logger.info(f"Sample facts:\n{count_cmd.data[:500]}")
                 else:
-                    logger.warning("No data found in root namespace")
+                    logger.warning("No data found in bioatomspace namespace")
                     
         except Exception as e:
             logger.error(f"Error organizing data: {e}")
     
-    def mork_storage(self) -> int:
-        """Estimate storage usage in MORK using actual stored data"""
-        if not self.server:
-            return 0
-
-        total_bytes = 0
-        for file_info in [{"namespace": self.create_mork_namespace(Path(f))} for f in self.discover_metta_files()]:
-            namespace = file_info.get("namespace")
-            if namespace:
-                try:
-                    with self.server.work_at(namespace) as scope:
-                        download_cmd = scope.download_()
-                        download_cmd.block()
-                        if download_cmd.data:
-                            total_bytes += len(download_cmd.data.encode('utf-8'))
-                except Exception as e:
-                    logger.debug(f"Could not access namespace {namespace}: {e}")
-
-        return total_bytes
-    
     def get_detailed_stats(self) -> Dict:
-        """Get comprehensive statistics by checking all namespaces"""
+        """Get comprehensive statistics from the bioatomspace namespace"""
         stats = {
             "total_mork_facts": 0,
             "total_mork_size_bytes": 0,
@@ -281,24 +225,20 @@ class MeTTaDataLoader:
             total_facts = 0
             all_data = ""
             
-            # Since data is loaded into specific namespaces, check each one
-            for file_info in self.stats.failed_files_list + [{"namespace": self.create_mork_namespace(Path(f))} for f in self.discover_metta_files()]:
-                namespace = file_info.get("namespace")
-                if namespace:
-                    try:
-                        with self.server.work_at(namespace) as scope:
-                            download_cmd = scope.download_()
-                            download_cmd.block()
-                            if download_cmd.data:
-                                ns_facts = download_cmd.data.count('\n')
-                                total_facts += ns_facts
-                                if len(all_data) < 1000:  # Keep sample manageable
-                                    all_data += f"\n--- {namespace} ---\n{download_cmd.data[:200]}"
-                    except Exception as e:
-                        logger.debug(f"Could not access namespace {namespace}: {e}")
+            # Check only the bioatomspace namespace
+            try:
+                with self.server.work_at("bioatomspace") as scope:
+                    download_cmd = scope.download_()
+                    download_cmd.block()
+                    if download_cmd.data:
+                        total_facts = download_cmd.data.count('\n')
+                        stats["total_mork_size_bytes"] = len(download_cmd.data.encode('utf-8'))
+                        if len(all_data) < 1000:  # Keep sample manageable
+                            all_data = f"\n--- bioatomspace ---\n{download_cmd.data[:500]}"
+            except Exception as e:
+                logger.debug(f"Could not access namespace bioatomspace: {e}")
             
             stats["total_mork_facts"] = total_facts
-            stats["total_mork_size_bytes"] = len(all_data.encode('utf-8')) if all_data else 0
             stats["sample_data"] = all_data
             
         except Exception as e:
@@ -318,6 +258,7 @@ class MeTTaDataLoader:
                 "timestamp": datetime.now().isoformat(),
                 "duration_seconds": self.stats.duration,
                 "base_data_dir": str(self.base_data_dir),
+                "namespace": "bioatomspace"
             },
             "file_statistics": {
                 "total_files": self.stats.total_files,
@@ -348,6 +289,7 @@ class MeTTaDataLoader:
         with open(csv_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['Metric', 'Value'])
+            writer.writerow(['Namespace', 'bioatomspace'])
             writer.writerow(['Total Files', self.stats.total_files])
             writer.writerow(['Successful Files', self.stats.successful_files])
             writer.writerow(['Failed Files', self.stats.failed_files])
@@ -360,8 +302,9 @@ class MeTTaDataLoader:
         
         logger.info(f"* Reports saved to: {manifest_path}, {csv_path}")
     
+    # Orchestrating the Whole Process
     def load_all_data(self) -> LoadStats:
-        """Main method to load all data"""
+        """load all data"""
         self.stats.start_time = time.time()
         
         try:
@@ -376,7 +319,7 @@ class MeTTaDataLoader:
                 logger.warning("... No MeTTa files found!")
                 return self.stats
             
-            logger.info(f"- Found {self.stats.total_files} MeTTa files to load")
+            logger.info(f"- Found {self.stats.total_files} MeTTa files to load into bioatomspace namespace")
             
             # Load files sequentially
             successful, total_facts, total_local_size = self.load_files_sequential(metta_files)
@@ -395,6 +338,7 @@ class MeTTaDataLoader:
             # Log summary
             mork_stats = self.get_detailed_stats()
             logger.info("... Loading Summary:")
+            logger.info(f"   Namespace: bioatomspace")
             logger.info(f"   Duration: {self.stats.duration:.2f} seconds")
             logger.info(f"   Files: {self.stats.successful_files}/{self.stats.total_files} ({self.stats.success_rate:.1f}%)")
             logger.info(f"   Facts loaded: {self.stats.total_facts:,}")
