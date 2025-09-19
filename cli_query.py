@@ -118,15 +118,60 @@ class MORKQueryEngine:
             result.query_type = "Node by ID"
             result.pattern = f"Node ID: {node_id}"
         
-        return result
+            return result
     
-    def find_nodes_by_type(self, node_type_prefix: str, max_results: int = None) -> QueryResult:
-        """Find all nodes of a specific type (e.g., 'cl', 'go', etc.)"""
-        pattern = f"({node_type_prefix} $id)"
-        result = self._execute_query(pattern, f"({node_type_prefix} $id)", max_results)
-        result.query_type = "Nodes by Type"
-        result.pattern = f"Type prefix: {node_type_prefix}"
-        return result
+    def find_node_by_id(self, node_id: str, max_results: int = None) -> QueryResult:
+        """Find all facts about a specific node ID"""
+        # Use patterns that directly match the node ID in different positions
+        # use morks indexing capability
+        
+        patterns = [
+            # Node as the subject of a relation: (relation node_id target)
+            f"($relation {node_id} $target)",
+            # Node as the object of a relation: (relation source node_id)
+            f"($relation $source {node_id})",
+            # Node as a property value: (property subject node_id)
+            f"($property $subject {node_id})",
+            # Node definition itself: (type node_id)
+            f"($type {node_id})"
+        ]
+        
+        combined_data = ""
+        total_count = 0
+        total_time = 0.0
+        
+        for pattern in patterns:
+            try:
+                result = self._execute_query(pattern, pattern, max_results)
+                if result.data:
+                    combined_data += result.data + "\n"
+                    total_count += result.count
+                    total_time += result.execution_time
+            except Exception as e:
+                logger.warning(f"Pattern {pattern} failed: {e}")
+                continue
+        
+        #  try to find the node definition if it exists
+        try:
+            # Extract the type prefix from the node ID (e.g., "CL" from "CL:0000010")
+            if ":" in node_id:
+                type_prefix = node_id.split(":")[0].lower()
+                node_pattern = f"({type_prefix} {node_id})"
+                node_result = self._execute_query(node_pattern, node_pattern, max_results)
+                if node_result.data:
+                    combined_data = node_result.data + "\n" + combined_data
+                    total_count += node_result.count
+                    total_time += node_result.execution_time
+        except Exception as e:
+            logger.warning(f"Node definition query failed: {e}")
+        
+        return QueryResult(
+            data=combined_data.strip(),
+            count=total_count,
+            query_type="Node by ID",
+            pattern=f"Node ID: {node_id}",
+            execution_time=total_time
+        )
     
     def find_node_properties(self, node_id: str, max_results: int = None) -> QueryResult:
         """Find all properties of a specific node"""
